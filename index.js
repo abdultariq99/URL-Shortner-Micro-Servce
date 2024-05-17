@@ -5,6 +5,7 @@ const app = express();
 const dns = require('dns')
 const bodyParser = require('body-parser')
 const mongoose = require('mongoose')
+const isUrlHttp = require('is-url-http')
 
 //Connect to Database
 
@@ -20,7 +21,7 @@ async function connectDatabase(){
 connectDatabase()
 
 const urlSchema = new mongoose.Schema({
-  orignal_url : String,
+  original_url : String,
   short_url: Number
 })
 
@@ -49,59 +50,40 @@ app.listen(port, function() {
 app.use(bodyParser.urlencoded({ extended: false }))
 app.use(bodyParser.json())
 
-app.post('/',(req,res,next)=>{
-  const urlMaker = (url) => {
-    let index = url.indexOf("www")
-    if(index >= 0){
-      let modifiedUrl = url.substring(index + 4, url.length)
-      return modifiedUrl
-    } else{
-      modifiedUrl = url
-      return modifiedUrl
-    }
+const urlChecker = (req,res,next)=>{
+  let checkHttp = isUrlHttp(req.body.url)
+  if(checkHttp != true){
+    res.json({error: 'invalid url'})
+  } else{
+    let url = new URL(req.body.url).hostname
+    dns.lookup(url, 0, (err)=>{
+      if(err){
+       return res.json({error: "invalid hostname"})
+      }else{
+        next()
+      }
+    })
   }
-  let newUrl = urlMaker(req.body.url)
-  dns.lookup(newUrl, 0, (err, address, family)=>{
-    if(err){
-      res.json({error: "Invalid Hostname"})
-    }else{
-      next()
-    }
-  })
-})
 
-app.post('/', (req,res,next)=>{
-  let url = req.body.url
-  let regex = /^https?:\/\/www\.[a-zA-Z0-9-]+(\.[a-zA-Z]{2,})(\/[a-zA-Z0-9\-\/]*)?$/
-  let urlMatch =regex.test(url)
-  if(urlMatch == false){
-    res.json({error: "invalid url"})
-  }else{
-    next()
-  }
-})
-
-
-app.post('/api/shorturl', (req,res)=>{
- const generateCode = () =>  {
- let code =  Math.floor(Math.random() * (9999-1 + 1) + 1)
- return code
 }
 
- let createUrl = async ()=>{
-  let existingUrl = await Url.findOne({orignal_url: req.body.url})
-  if(existingUrl != null){
-    res.json({orignal_url: existingUrl.orignal_url, short_url: existingUrl.short_url})
-  } else{
-    let newCode = generateCode()
-    let createCode = await Url.findOne({short_url: newCode})
-    while(createCode != null){
-      newCode = generateCode()
+
+
+app.post('/api/shorturl',urlChecker, (req,res)=>{
+  let createUrl = async ()=>{
+    let existingUrl = await Url.findOne({original_url: req.body.url})
+    if(existingUrl != null){
+      res.json({original_url: existingUrl.original_url, short_url: existingUrl.short_url})
+    } else{
+    let newCode = 1
+    let highestCode = await Url.findOne().sort({short_url: -1}).limit(1)
+    if(highestCode){
+      newCode = highestCode.short_url + 1
     }
-    await Url.create({orignal_url: req.body.url, short_url: newCode})
-    res.json({orignal_url: req.body.url, short_url: newCode})
+    await Url.create({original_url: req.body.url, short_url: newCode})
+    res.json({original_url: req.body.url, short_url: newCode})
   }
- }
+}
  createUrl()
 })
 
@@ -113,10 +95,13 @@ let showUser = async () =>{
   if(checkCode == null){
     res.json({error: "No short URL found for the given input"})
   }else{
-    res.redirect(checkCode.orignal_url)
+    res.redirect(checkCode.original_url)
   }
 }
 showUser()
 })
+
+
+
 
 
